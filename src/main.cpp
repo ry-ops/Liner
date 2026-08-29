@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-static const char* LINER_VERSION = "1.1.0";
+static const char* LINER_VERSION = "1.2.0";
 static const char* MDNS_HOSTNAME = "liner"; // also the OTA target: liner.local
 
 static const int PANEL_W = 400;
@@ -36,41 +36,55 @@ static const uint32_t SCREENSAVER_INTERVAL_MS = 10UL * 60 * 1000;
 String lastRenderedKey = "\x01__BOOT__\x01"; // sentinel so the first real state always renders
 
 // ---------------------------------------------------------------------------
-// Wi-Fi + Volumio setup
+// Wi-Fi + Volumio setup, and an always-on settings/status web page
 //
 // Credentials and the Volumio host live in NVS (via Preferences), not in
 // compile-time config — so one built binary works for anyone, configured
-// through a small web form served from the device's own access point. This
-// is what makes a prebuilt release binary (e.g. for M5Burner) actually usable
-// by someone other than the person who built it.
+// through a small web form. This is what makes a prebuilt release binary
+// (e.g. for M5Burner) actually usable by someone other than the person who
+// built it. The same server and page work in two contexts: reachable at
+// http://192.168.4.1 while broadcasting the Liner-Setup AP (first boot, a
+// failed connection, or the top button), and at http://liner.local (or the
+// device's LAN IP) once connected normally — so settings can be changed
+// without needing to disconnect and rejoin the device's own AP.
 // ---------------------------------------------------------------------------
 
 Preferences prefs;
-WebServer setupServer(80);
+WebServer webServer(80);
 bool inSetupMode = false;
+bool pendingReconnect = false; // set by handleSaveSettings() when the network was changed
 
 String savedSsid;
 String savedPassword;
 String savedVolumioHost;
+bool otaEnabled = true;
+bool screensaverEnabled = true;
 
 void loadSettings() {
   prefs.begin("liner", true); // read-only
   savedSsid = prefs.getString("ssid", "");
   savedPassword = prefs.getString("pass", "");
   savedVolumioHost = prefs.getString("vhost", VOLUMIO_HOST_DEFAULT);
+  otaEnabled = prefs.getBool("ota", true);
+  screensaverEnabled = prefs.getBool("screensaver", true);
   prefs.end();
 }
 
-void saveSettings(const String& ssid, const String& password, const String& vhost) {
+void saveSettings(const String& ssid, const String& password, const String& vhost,
+                   bool ota, bool screensaver) {
   String host = vhost.length() ? vhost : String(VOLUMIO_HOST_DEFAULT);
   prefs.begin("liner", false); // read-write
   prefs.putString("ssid", ssid);
   prefs.putString("pass", password);
   prefs.putString("vhost", host);
+  prefs.putBool("ota", ota);
+  prefs.putBool("screensaver", screensaver);
   prefs.end();
   savedSsid = ssid;
   savedPassword = password;
   savedVolumioHost = host;
+  otaEnabled = ota;
+  screensaverEnabled = screensaver;
 }
 
 void showStatus(const String& msg) {
@@ -114,7 +128,38 @@ String htmlEscape(const String& s) {
   return out;
 }
 
-void handleSetupRoot() {
+// Shared page chrome: mobile-first, no external assets (device serves everything
+// itself), touch-friendly toggle switches, a details/summary accordion for tips
+// so the page stays short on a phone screen.
+const char* PAGE_STYLE =
+  "*{box-sizing:border-box;}"
+  "body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;"
+  "padding:1.25em;line-height:1.45;color:#1a1a1a;}"
+  "h1{font-size:1.4em;margin:0 0 0.5em;}"
+  "h2{font-size:1.05em;margin:1.6em 0 0.6em;border-top:1px solid #e0e0dc;padding-top:1em;}"
+  ".status{background:#f4f4f0;border-radius:10px;padding:0.8em 1em;font-size:0.92em;}"
+  ".status div{margin:0.25em 0;}"
+  "label{display:block;margin-top:1em;font-weight:600;font-size:0.95em;}"
+  "input,select{width:100%;padding:0.65em;font-size:1em;margin-top:0.35em;"
+  "border:1px solid #ccc;border-radius:8px;}"
+  "button{margin-top:1.6em;padding:0.85em;width:100%;font-size:1.05em;font-weight:600;"
+  "background:#1a1a1a;color:#fff;border:none;border-radius:10px;}"
+  ".toggle-row{display:flex;align-items:center;justify-content:space-between;margin-top:1.1em;}"
+  ".toggle-row span{font-weight:600;font-size:0.95em;}"
+  ".switch{position:relative;display:inline-block;width:50px;height:30px;flex-shrink:0;}"
+  ".switch input{opacity:0;width:0;height:0;}"
+  ".slider{position:absolute;cursor:pointer;inset:0;background:#ccc;border-radius:30px;transition:.2s;}"
+  ".slider:before{position:absolute;content:'';height:24px;width:24px;left:3px;bottom:3px;"
+  "background:#fff;border-radius:50%;transition:.2s;}"
+  "input:checked+.slider{background:#1a1a1a;}"
+  "input:checked+.slider:before{transform:translateX(20px);}"
+  "details{margin-top:0.6em;border-top:1px solid #eee;}"
+  "summary{font-weight:600;cursor:pointer;padding:0.7em 0;font-size:0.95em;}"
+  "details p{font-size:0.9em;color:#444;margin:0 0 0.8em;}"
+  "code{background:#f0f0ee;padding:0.15em 0.4em;border-radius:4px;font-size:0.9em;}"
+  "a{color:#1a1a1a;}";
+
+void handleRoot() {
   int n = WiFi.scanNetworks();
   String options;
   for (int i = 0; i < n; i++) {
@@ -124,50 +169,120 @@ void handleSetupRoot() {
                " (" + String(WiFi.RSSI(i)) + " dBm)</option>";
   }
 
+  String networkStatus = inSetupMode
+    ? "Setup mode &mdash; broadcasting <strong>" + String(SETUP_AP_NAME) + "</strong>"
+    : (WiFi.status() == WL_CONNECTED
+        ? "Connected to <strong>" + htmlEscape(WiFi.SSID()) + "</strong>"
+        : "Not connected");
+  String ipLine = inSetupMode ? WiFi.softAPIP().toString()
+                              : (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "&mdash;");
+
   String html =
     "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
-    "<title>Liner setup</title>"
-    "<style>body{font-family:sans-serif;max-width:420px;margin:2em auto;padding:0 1em;}"
-    "label{display:block;margin-top:1em;font-weight:bold;}"
-    "input,select{width:100%;padding:0.5em;font-size:1em;box-sizing:border-box;}"
-    "button{margin-top:1.5em;padding:0.7em;width:100%;font-size:1em;"
-    "background:#1a1a1a;color:#fff;border:none;border-radius:4px;}</style></head><body>"
-    "<h2>Liner setup</h2>"
+    "<title>Liner</title><style>" + String(PAGE_STYLE) + "</style></head><body>"
+    "<h1>Liner</h1>"
+    "<div class='status'>"
+      "<div><strong>Firmware:</strong> v" + String(LINER_VERSION) + "</div>"
+      "<div><strong>Network:</strong> " + networkStatus + "</div>"
+      "<div><strong>IP:</strong> " + ipLine + "</div>"
+      "<div><strong>Volumio host:</strong> " + htmlEscape(savedVolumioHost) + "</div>"
+    "</div>"
+
     "<form method='POST' action='/save'>"
-    "<label>Wi-Fi network</label>"
+    "<h2>Wi-Fi &amp; Volumio</h2>"
+    "<label>Network</label>"
     "<select onchange=\"document.getElementById('ssid').value=this.value\">"
     "<option value=''>-- choose a network --</option>" + options + "</select>"
     "<label>Or enter manually</label>"
     "<input id='ssid' name='ssid' placeholder='SSID' value='" + htmlEscape(savedSsid) + "'>"
     "<label>Password</label>"
-    "<input name='password' type='password' placeholder='leave blank if open'>"
+    "<input name='password' type='password' placeholder='leave blank to keep current'>"
     "<label>Volumio host</label>"
     "<input name='vhost' value='" + htmlEscape(savedVolumioHost) + "'>"
-    "<button type='submit'>Save and connect</button>"
-    "</form></body></html>";
 
-  setupServer.send(200, "text/html", html);
+    "<h2>Options</h2>"
+    "<div class='toggle-row'><span>OTA updates</span>"
+    "<label class='switch'><input type='checkbox' name='ota'" + (otaEnabled ? " checked" : "") +
+    "><span class='slider'></span></label></div>"
+    "<div class='toggle-row'><span>Idle screensaver</span>"
+    "<label class='switch'><input type='checkbox' name='screensaver'" + (screensaverEnabled ? " checked" : "") +
+    "><span class='slider'></span></label></div>"
+
+    "<button type='submit'>Save</button>"
+    "</form>"
+
+    "<h2>Troubleshooting</h2>"
+    "<details><summary>The screen isn't updating</summary>"
+    "<p>A full e-paper refresh takes 15&ndash;30 seconds and only happens when the track "
+    "actually changes &mdash; a pause there is normal, not a hang.</p></details>"
+    "<details><summary>No album art is showing</summary>"
+    "<p>Only Tidal's album art path is fully verified so far. Local files and Spotify may "
+    "not resolve art correctly yet &mdash; playback info should still work.</p></details>"
+    "<details><summary>Wi-Fi won't connect</summary>"
+    "<p>Double-check the password. If it's stuck, press the device's top button any time "
+    "to reopen this page over its own <code>" + String(SETUP_AP_NAME) + "</code> Wi-Fi network.</p></details>"
+    "<details><summary>Updating firmware over the air</summary>"
+    "<p>With OTA enabled above, push builds from PlatformIO:<br>"
+    "<code>pio run -t upload --upload-port liner.local</code></p></details>"
+    "<details><summary>Reporting an issue</summary>"
+    "<p>Include the firmware version shown above and what the device's screen shows. "
+    "<a href='https://github.com/ry-ops/Liner/issues'>Open an issue on GitHub</a>.</p></details>"
+
+    "</body></html>";
+
+  webServer.send(200, "text/html", html);
 }
 
-void handleSetupSave() {
-  String ssid = setupServer.arg("ssid");
-  String password = setupServer.arg("password");
-  String vhost = setupServer.arg("vhost");
+void handleSaveSettings() {
+  String ssid = webServer.arg("ssid");
+  String password = webServer.arg("password");
+  String vhost = webServer.arg("vhost");
+  bool ota = webServer.hasArg("ota");
+  bool screensaver = webServer.hasArg("screensaver");
 
   if (ssid.length() == 0) {
-    setupServer.send(400, "text/plain", "SSID is required — go back and try again.");
+    webServer.send(400, "text/plain", "SSID is required — go back and try again.");
     return;
   }
 
-  saveSettings(ssid, password, vhost);
-  setupServer.send(200, "text/html",
-    "<html><body style='font-family:sans-serif;text-align:center;margin-top:3em;'>"
-    "<h2>Saved</h2><p>Liner will now try to connect to \"" + htmlEscape(ssid) + "\".</p>"
-    "<p>Check the device screen for status.</p></body></html>");
+  // The form never shows the saved password back (avoid leaking it into page
+  // source), so a blank field on an unchanged network means "keep it as-is",
+  // not "set it to empty".
+  bool networkChanged = (ssid != savedSsid) || (password.length() > 0 && password != savedPassword);
+  if (ssid == savedSsid && password.length() == 0) {
+    password = savedPassword;
+  }
 
-  delay(500); // let the HTTP response flush before we tear down the AP
-  showStatusLines("Connecting to", ssid, "...");
-  inSetupMode = false; // loop() will notice and attempt the real connect next
+  saveSettings(ssid, password, vhost, ota, screensaver);
+
+  String body = "<h2>Saved</h2>";
+  if (networkChanged) {
+    body += "<p>Liner will now try to connect to \"" + htmlEscape(ssid) + "\".</p>"
+            "<p>Check the device screen for status.</p>";
+  } else {
+    body += "<p>Settings updated.</p>";
+  }
+  body += "<p><a href='/'>Back</a></p>";
+
+  webServer.send(200, "text/html",
+    "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
+    "<body style='font-family:-apple-system,sans-serif;text-align:center;margin-top:3em;padding:0 1em;'>"
+    + body + "</body></html>");
+
+  if (networkChanged) {
+    delay(500); // let the HTTP response flush before we disconnect
+    showStatusLines("Connecting to", ssid, "...");
+    pendingReconnect = true; // loop() will notice and attempt the real connect next
+  }
+}
+
+// Registers routes and starts the web server exactly once. The server itself
+// stays up for the device's entire runtime, in both AP (setup) and STA
+// (normal) modes — see the comment above the Wi-Fi/Volumio setup section.
+void startWebServer() {
+  webServer.on("/", handleRoot);
+  webServer.on("/save", HTTP_POST, handleSaveSettings);
+  webServer.begin();
 }
 
 void startSetupMode() {
@@ -176,10 +291,6 @@ void startSetupMode() {
   WiFi.mode(WIFI_AP);
   WiFi.softAP(SETUP_AP_NAME);
   delay(100);
-
-  setupServer.on("/", handleSetupRoot);
-  setupServer.on("/save", HTTP_POST, handleSetupSave);
-  setupServer.begin();
 
   String ip = WiFi.softAPIP().toString();
   Serial.printf("Setup mode: connect to Wi-Fi \"%s\", then visit http://%s\n", SETUP_AP_NAME, ip.c_str());
@@ -195,6 +306,7 @@ void connectWiFi() {
     return;
   }
 
+  inSetupMode = false; // leaving AP mode (if we were in it) to attempt a real connection
   WiFi.mode(WIFI_STA);
   WiFi.begin(savedSsid.c_str(), savedPassword.c_str());
 
@@ -571,6 +683,11 @@ void setup() {
   Serial.println("[boot] status drawn, connecting wifi...");
   connectWiFi();
 
+  // Started after connectWiFi() so a network interface (STA or the AP from
+  // setup mode) is already up first — starting it any earlier stalled boot
+  // entirely, with no crash/error logged, just a silent hang.
+  startWebServer();
+
   if (WiFi.status() == WL_CONNECTED) {
     showStatus("Connected. Waiting for Volumio...");
   } else if (!inSetupMode) {
@@ -604,19 +721,21 @@ void loop() {
     enterSetupMode();
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
+  // The web server runs continuously in both AP and STA mode — see the note
+  // above the Wi-Fi/Volumio setup section — so this is unconditional.
+  webServer.handleClient();
+
+  if (otaEnabled && WiFi.status() == WL_CONNECTED) {
     ArduinoOTA.handle();
   }
 
+  if (pendingReconnect) {
+    pendingReconnect = false;
+    connectWiFi(); // handleSaveSettings() already saved the new credentials
+    lastRenderedKey = "\x01__BOOT__\x01"; // force a fresh render once connected
+  }
+
   if (inSetupMode) {
-    setupServer.handleClient();
-    if (!inSetupMode) {
-      // handleSetupSave() just turned this off with fresh credentials saved —
-      // tear down the AP/server and try the real connection now.
-      setupServer.stop();
-      connectWiFi();
-      lastRenderedKey = "\x01__BOOT__\x01"; // force a fresh render once connected
-    }
     delay(2);
     return;
   }
@@ -665,7 +784,7 @@ void loop() {
     // Screensaver: the state-change check above only fires once on entering
     // idle, since "__IDLE__" never itself changes — this timer-based check
     // is what keeps cycling patterns during a long continuous idle stretch.
-    if (!playing && idleSince != 0) {
+    if (screensaverEnabled && !playing && idleSince != 0) {
       uint32_t idleFor = millis() - idleSince;
       uint32_t sinceLastSS = millis() - lastScreensaverRender;
       if (idleFor > SCREENSAVER_DELAY_MS &&

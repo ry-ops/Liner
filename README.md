@@ -16,7 +16,7 @@ The name is a nod to *liner notes* — the printed text and art that ship inside
 - **Idle screen** when nothing is playing, cycling into a generative Spectra-6 screensaver after a long idle stretch
 - **Event-driven refresh** — only redraws when the track actually changes, since a full e-paper refresh takes 15–30 seconds
 - **Playback controls** — up/down buttons skip to the next/previous track
-- **On-device Wi-Fi setup** — no credentials baked into the firmware; configure your network (and Volumio host) through a web form served from the device's own access point
+- **On-device Wi-Fi & settings portal** — no credentials baked into the firmware; a mobile-first web page (reachable both during first-time setup and, once connected, at `liner.local` on your normal LAN) handles network/Volumio config, OTA and screensaver toggles, and troubleshooting tips
 - **OTA updates** — push new firmware over the network once it's on Wi-Fi, no more re-entering download mode for every change
 - **Album art from any source** — local files, Tidal, and (untested so far) Spotify/other Volumio plugins, via a service-aware resolver
 
@@ -34,16 +34,16 @@ Built with [PlatformIO](https://platformio.org/) on the Arduino framework, using
 
 Because a full refresh takes 15–30 seconds, the main loop polls Volumio for state every few seconds but only triggers a screen redraw when the track (title/artist/album) actually changes — not on every poll.
 
-### Wi-Fi setup (no baked-in credentials)
+### Wi-Fi setup and settings (no baked-in credentials)
 
-Wi-Fi credentials and the Volumio host aren't compile-time config — they live in NVS (via `Preferences`), set through a small web form the device serves from its own access point. This is what lets one built binary (e.g. a release `.bin`, or something distributed through M5Burner) work for anyone, rather than requiring everyone to rebuild from source with their own network baked in.
+Wi-Fi credentials and the Volumio host aren't compile-time config — they live in NVS (via `Preferences`), set through a small mobile-first web page. This is what lets one built binary (e.g. a release `.bin`, or something distributed through M5Burner) work for anyone, rather than requiring everyone to rebuild from source with their own network baked in.
 
-The setup portal opens automatically:
-- on first boot, before anything has been configured,
-- if a saved network fails to connect,
-- or any time you press the **top button** — which disconnects Wi-Fi if it's currently connected and reopens the portal, so you can switch networks or fix a typo without waiting for a failure.
+The same page serves two purposes depending on context:
 
-When it's open, the screen shows the access point name (`Liner-Setup`) and an IP address. Connect to that Wi-Fi network from a phone or laptop, browse to the shown IP, and pick a network (or type one in) plus your Volumio host from the form.
+- **First-time setup** — opens automatically on first boot, if a saved network fails to connect, or any time you press the **top button** (which disconnects Wi-Fi first if already connected, so it doubles as an on-demand "switch networks" trigger). In this mode the device broadcasts its own access point (`Liner-Setup`); the screen shows that name and an IP to browse to.
+- **Ongoing settings, once connected** — the same page is also reachable at `http://liner.local/` (or the device's LAN IP) during normal operation, no need to disconnect from your real network to reach it. From here you can change the network/Volumio host, or flip the **OTA updates** and **idle screensaver** toggles, without interrupting playback unless you actually change the network.
+
+Saving with the network/password unchanged just updates settings in place; changing either triggers a reconnect (and, if it's mid-setup, exits the AP).
 
 ### OTA updates
 
