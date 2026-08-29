@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-static const char* LINER_VERSION = "1.4.0";
+static const char* LINER_VERSION = "1.5.0";
 static const char* MDNS_HOSTNAME = "liner"; // also the OTA target: liner.local
 
 static const int PANEL_W = 400;
@@ -173,7 +173,21 @@ const char* PAGE_STYLE =
   "summary{font-weight:600;cursor:pointer;padding:0.7em 0;font-size:0.95em;}"
   "details p{font-size:0.9em;color:#444;margin:0 0 0.8em;}"
   "code{background:#f0f0ee;padding:0.15em 0.4em;border-radius:4px;font-size:0.9em;}"
-  "a{color:#1a1a1a;}";
+  "a{color:#1a1a1a;}"
+  // Hamburger nav: pure CSS (checkbox hack) slide-out drawer, no JS framework.
+  // The checkbox must precede the drawer/overlay in DOM order for the ~
+  // sibling selector below to reach them.
+  ".topbar{display:flex;align-items:center;justify-content:space-between;}"
+  ".topbar h1{margin:0;}"
+  ".nav-toggle{display:none;}"
+  ".hamburger{font-size:1.7em;line-height:1;padding:0.1em 0.35em;cursor:pointer;user-select:none;}"
+  ".nav-drawer{position:fixed;top:0;right:-250px;width:220px;height:100%;background:#fff;"
+  "box-shadow:-2px 0 16px rgba(0,0,0,0.18);padding:4em 1.5em 1.5em;"
+  "display:flex;flex-direction:column;gap:1.1em;transition:right .25s;z-index:10;}"
+  ".nav-drawer a{font-weight:600;font-size:1.05em;text-decoration:none;}"
+  ".nav-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:9;}"
+  ".nav-toggle:checked ~ .nav-drawer{right:0;}"
+  ".nav-toggle:checked ~ .nav-overlay{display:block;}";
 
 void handleRoot() {
   int n = WiFi.scanNetworks();
@@ -214,7 +228,19 @@ void handleRoot() {
     "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
     "<meta name='viewport' content='width=device-width,initial-scale=1'>"
     "<title>Liner</title><style>" + String(PAGE_STYLE) + "</style></head><body>"
-    "<h1>Liner</h1>"
+    "<input type='checkbox' id='navToggle' class='nav-toggle'>"
+    "<div class='topbar'>"
+      "<h1>Liner</h1>"
+      "<label for='navToggle' class='hamburger'>&#9776;</label>"
+    "</div>"
+    "<nav class='nav-drawer'>"
+      "<a href='#nowplaying' onclick=\"document.getElementById('navToggle').checked=false\">Now Playing</a>"
+      "<a href='#settings' onclick=\"document.getElementById('navToggle').checked=false\">Settings</a>"
+      "<a href='#troubleshooting' onclick=\"document.getElementById('navToggle').checked=false\">Troubleshooting</a>"
+    "</nav>"
+    "<label for='navToggle' class='nav-overlay'></label>"
+
+    "<div id='nowplaying'>"
     "<div class='status'>"
       "<div><strong>Firmware:</strong> v" + String(LINER_VERSION) + "</div>"
       "<div><strong>Network:</strong> " + networkStatus + "</div>"
@@ -223,8 +249,9 @@ void handleRoot() {
     "</div>"
 
     + nowPlaying +
+    "</div>"
 
-    "<form method='POST' action='/save'>"
+    "<form method='POST' action='/save' id='settings'>"
     "<h2>Wi-Fi &amp; Volumio</h2>"
     "<label>Network</label>"
     "<select onchange=\"document.getElementById('ssid').value=this.value\">"
@@ -247,7 +274,7 @@ void handleRoot() {
     "<button type='submit'>Save</button>"
     "</form>"
 
-    "<h2>Troubleshooting</h2>"
+    "<h2 id='troubleshooting'>Troubleshooting</h2>"
     "<details><summary>The screen isn't updating</summary>"
     "<p>A full e-paper refresh takes 15&ndash;30 seconds and only happens when the track "
     "actually changes &mdash; a pause there is normal, not a hang.</p></details>"

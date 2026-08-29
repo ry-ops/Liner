@@ -16,7 +16,7 @@ The name is a nod to *liner notes* — the printed text and art that ship inside
 - **Idle screen** when nothing is playing, cycling into a generative Spectra-6 screensaver after a long idle stretch
 - **Event-driven refresh** — only redraws when the track actually changes, since a full e-paper refresh takes 15–30 seconds
 - **Playback controls** — up/down buttons skip to the next/previous track
-- **On-device Wi-Fi & settings portal** — no credentials baked into the firmware; a mobile-first web page (reachable both during first-time setup and, once connected, at `liner.local` on your normal LAN) handles network/Volumio config, OTA and screensaver toggles, and troubleshooting tips
+- **On-device Wi-Fi & settings portal** — no credentials baked into the firmware; a mobile-first web page (reachable both during first-time setup and, once connected, at `liner.local` on your normal LAN) shows a live Now Playing card and handles network/Volumio config, OTA and screensaver toggles, and troubleshooting tips, organized behind a hamburger nav
 - **OTA updates** — push new firmware over the network once it's on Wi-Fi, no more re-entering download mode for every change
 - **Album art from any source** — local files, Tidal, and (untested so far) Spotify/other Volumio plugins, via a service-aware resolver
 
