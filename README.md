@@ -81,6 +81,8 @@ Button polling is non-blocking (`M5.update()` runs every loop iteration; Volumio
 
 ## Setup
 
+> **Prebuilt binary:** each [release](https://github.com/ry-ops/Liner/releases) includes a merged, single-file `.bin` (flash at offset `0x0`) alongside the source. It's built with the maintainer's own Wi-Fi/Volumio config baked in, so it won't connect to your network as-is — it's there as a working reference image, not a flash-and-go download. Build from source (below) for your own setup.
+
 1. Copy the config template and fill in your own values:
    ```
    cp include/config.h.example include/config.h
