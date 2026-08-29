@@ -17,6 +17,8 @@
 
 #include "config.h"
 
+static const char* LINER_VERSION = "1.0.0";
+
 static const int PANEL_W = 400;
 static const int PANEL_H = 600;
 static const int ART_SIZE = 400; // album art occupies the top, full-width square
@@ -350,7 +352,7 @@ void setup() {
   // Serial first, before anything that could hang, so we always get SOME output.
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n[boot] Serial up");
+  Serial.printf("\n[boot] Liner v%s\n", LINER_VERSION);
 
   auto cfg = M5.config();
   Serial.println("[boot] calling M5.begin()...");
