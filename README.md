@@ -13,10 +13,11 @@ The name is a nod to *liner notes* — the printed text and art that ship inside
 ## Features
 
 - **Now-playing card**: full-width album art on top, title/artist/album text below
-- **Idle screen** when nothing is playing
+- **Idle screen** when nothing is playing, cycling into a generative Spectra-6 screensaver after a long idle stretch
 - **Event-driven refresh** — only redraws when the track actually changes, since a full e-paper refresh takes 15–30 seconds
 - **Playback controls** — up/down buttons skip to the next/previous track
-- **Wi-Fi network cycling** — the top button switches between a configurable list of known networks
+- **On-device Wi-Fi setup** — no credentials baked into the firmware; configure your network (and Volumio host) through a web form served from the device's own access point
+- **OTA updates** — push new firmware over the network once it's on Wi-Fi, no more re-entering download mode for every change
 - **Album art from any source** — local files, Tidal, and (untested so far) Spotify/other Volumio plugins, via a service-aware resolver
 
 ## Hardware
@@ -32,6 +33,27 @@ The name is a nod to *liner notes* — the printed text and art that ship inside
 Built with [PlatformIO](https://platformio.org/) on the Arduino framework, using [M5Unified](https://github.com/m5stack/M5Unified) / [M5GFX](https://github.com/m5stack/M5GFX). `M5.begin()` auto-detects the PaperColor board and its `Panel_ED2208` e-paper driver — the firmware just draws normal RGB888 graphics, and the panel driver quantizes everything down to the 6-color Spectra palette automatically on `display()`.
 
 Because a full refresh takes 15–30 seconds, the main loop polls Volumio for state every few seconds but only triggers a screen redraw when the track (title/artist/album) actually changes — not on every poll.
+
+### Wi-Fi setup (no baked-in credentials)
+
+Wi-Fi credentials and the Volumio host aren't compile-time config — they live in NVS (via `Preferences`), set through a small web form the device serves from its own access point. This is what lets one built binary (e.g. a release `.bin`, or something distributed through M5Burner) work for anyone, rather than requiring everyone to rebuild from source with their own network baked in.
+
+The setup portal opens automatically:
+- on first boot, before anything has been configured,
+- if a saved network fails to connect,
+- or any time you press the **top button** — which disconnects Wi-Fi if it's currently connected and reopens the portal, so you can switch networks or fix a typo without waiting for a failure.
+
+When it's open, the screen shows the access point name (`Liner-Setup`) and an IP address. Connect to that Wi-Fi network from a phone or laptop, browse to the shown IP, and pick a network (or type one in) plus your Volumio host from the form.
+
+### OTA updates
+
+Once connected, the device advertises itself at `liner.local` and accepts firmware pushed over the network:
+
+```
+pio run -t upload --upload-port liner.local
+```
+
+No password is set — this matches the setup portal's own trust model (convenience on a local network you already trust, not hardened against a hostile LAN). The very first flash still has to go over USB (see Setup below); every update after that can go over OTA instead.
 
 ### Talking to Volumio
 
@@ -69,40 +91,42 @@ This also shrinks the download significantly (a 105KB source image came back as 
 
 Album art resolution is dispatched by Volumio's `service` field (`resolveAlbumArtUrl()` in `src/main.cpp`), so each source has its own clear spot for future quirks. **Only the Tidal path has actually been exercised** — local file (`mpd`) and Spotify (`spop`/`volspotconnect2`) branches exist as stubs that currently fall through to the same generic logic, untested.
 
+### Idle screensaver
+
+After 5 minutes of nothing playing, the idle screen starts cycling through generative abstract patterns (scattered shapes, concentric rings, diagonal bands) built from the same Spectra 6 palette as the album art, changing every 10 minutes. Purely decorative — it's there so a stationary display isn't just static text for hours, without triggering more e-paper refreshes than that cadence can reasonably bear.
+
 ### Controls
 
 | Button | Location | Action |
 |---|---|---|
 | Up | GPIO10 | Next track (`cmd=next`) |
 | Down | GPIO9 | Previous track (`cmd=prev`) |
-| Top | GPIO1 | Cycle to the next known Wi-Fi network |
+| Top | GPIO1 | Open Wi-Fi/Volumio setup — disconnects first if already connected |
 
 Button polling is non-blocking (`M5.update()` runs every loop iteration; Volumio polling is time-gated separately) — an earlier version blocked on a 5-second `delay()` between polls, which meant a quick tap could start and end entirely between checks and never register.
 
 ## Setup
 
-> **Prebuilt binary:** each [release](https://github.com/ry-ops/Liner/releases) includes a merged, single-file `.bin` (flash at offset `0x0`) alongside the source. It's built with the maintainer's own Wi-Fi/Volumio config baked in, so it won't connect to your network as-is — it's there as a working reference image, not a flash-and-go download. Build from source (below) for your own setup.
+> **Prebuilt binary:** each [release](https://github.com/ry-ops/Liner/releases) includes a merged, single-file `.bin` (flash at offset `0x0`) alongside the source — no Wi-Fi/Volumio config baked in, since that's all handled by the on-device setup portal described above. Flash it and configure it like any other build.
 
-1. Copy the config template and fill in your own values:
-   ```
-   cp include/config.h.example include/config.h
-   ```
-   Set your Wi-Fi network(s) (`KNOWN_NETWORKS`) and your Volumio host (`VOLUMIO_HOST`).
-
-2. Build:
+1. Build:
    ```
    pio run
    ```
 
-3. Flash. The PaperColor's factory firmware doesn't expose a USB serial console during normal boot, so you'll need to manually put it into download mode first: **hold the reset button** while it's connected over USB, then run:
+2. Flash. The PaperColor's factory firmware doesn't expose a USB serial console during normal boot, so you'll need to manually put it into download mode first: **hold the reset button** while it's connected over USB, then run:
    ```
    pio run -t upload --upload-port /dev/cu.usbmodemXXXX
    ```
 
-4. **After flashing, press the power button once** to boot into the new firmware. In practice, esptool's software-triggered reset at the end of upload doesn't reliably boot this board into the app — a physical button press is needed. This sometimes takes a couple of tries.
+3. **After flashing, press the power button once** to boot into the new firmware. In practice, esptool's software-triggered reset at the end of upload doesn't reliably boot this board into the app — a physical button press is needed. This sometimes takes a couple of tries.
+
+4. On first boot, it'll have nothing saved and open the setup portal automatically — connect to `Liner-Setup` from a phone or laptop and follow the on-screen IP to configure your network and Volumio host.
+
+From here on, firmware updates can go over OTA (`pio run -t upload --upload-port liner.local`) instead of repeating steps 2–3.
 
 ## Known limitations
 
 - Only the Tidal album art path is verified; local/Spotify/other-service art handling is untested (see stubs in `resolveAlbumArtUrl()`).
-- Network cycling is a simple compile-time list, not an interactive on-screen picker — given e-paper's refresh time, browsing a menu on-device would be slow. A menu system may come later.
-- Flashing and booting both currently require manual button presses (see Setup) — software-triggered resets aren't reliable on this board/toolchain combination.
+- The setup portal and OTA updates are both unauthenticated — fine on a trusted home LAN, not hardened against a hostile network.
+- Flashing and booting over USB both currently require manual button presses (see Setup) — software-triggered resets aren't reliable on this board/toolchain combination. OTA updates don't have this problem; they reboot on their own.
