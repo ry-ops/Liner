@@ -45,6 +45,8 @@ The same page serves two purposes depending on context:
 
 Saving with the network/password unchanged just updates settings in place; changing either triggers a reconnect (and, if it's mid-setup, exits the AP).
 
+The page also shows a **Now Playing** card (album art, title/artist/album, the platform/format/bitrate line) sourced from the same state the e-paper display uses — cached from the most recent Volumio poll rather than making its own extra request, so loading the page doesn't add load on Volumio.
+
 ### OTA updates
 
 Once connected, the device advertises itself at `liner.local` and accepts firmware pushed over the network:

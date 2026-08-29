@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-static const char* LINER_VERSION = "1.3.0";
+static const char* LINER_VERSION = "1.4.0";
 static const char* MDNS_HOSTNAME = "liner"; // also the OTA target: liner.local
 
 static const int PANEL_W = 400;
@@ -34,6 +34,12 @@ static const uint32_t SCREENSAVER_DELAY_MS = 5UL * 60 * 1000;
 static const uint32_t SCREENSAVER_INTERVAL_MS = 10UL * 60 * 1000;
 
 String lastRenderedKey = "\x01__BOOT__\x01"; // sentinel so the first real state always renders
+
+// Cached from the most recent successful poll, regardless of whether it
+// triggered an e-paper redraw — lets the web portal show current playback
+// without making its own extra round-trip to Volumio on every page load.
+bool cachedPlaying = false;
+String cachedTitle, cachedArtist, cachedAlbum, cachedArtUrl, cachedMetaLine;
 
 // ---------------------------------------------------------------------------
 // Wi-Fi + Volumio setup, and an always-on settings/status web page
@@ -139,6 +145,16 @@ const char* PAGE_STYLE =
   "h2{font-size:1.05em;margin:1.6em 0 0.6em;border-top:1px solid #e0e0dc;padding-top:1em;}"
   ".status{background:#f4f4f0;border-radius:10px;padding:0.8em 1em;font-size:0.92em;}"
   ".status div{margin:0.25em 0;}"
+  ".nowplaying{display:flex;gap:0.9em;align-items:center;background:#f4f4f0;"
+  "border-radius:10px;padding:0.8em;margin-top:0.8em;}"
+  ".nowplaying img{width:64px;height:64px;border-radius:8px;object-fit:cover;"
+  "flex-shrink:0;background:#ddd;}"
+  ".np-text{min-width:0;}"
+  ".np-title{font-weight:700;font-size:1em;}"
+  ".np-artist{font-size:0.9em;color:#333;}"
+  ".np-album{font-size:0.8em;color:#666;}"
+  ".np-meta{font-size:0.8em;font-weight:700;margin-top:0.25em;}"
+  ".np-idle{justify-content:center;color:#888;padding:1.1em;}"
   "label{display:block;margin-top:1em;font-weight:600;font-size:0.95em;}"
   "input,select{width:100%;padding:0.65em;font-size:1em;margin-top:0.35em;"
   "border:1px solid #ccc;border-radius:8px;}"
@@ -177,8 +193,26 @@ void handleRoot() {
   String ipLine = inSetupMode ? WiFi.softAPIP().toString()
                               : (WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "&mdash;");
 
+  String nowPlaying;
+  if (cachedPlaying) {
+    nowPlaying =
+      "<div class='nowplaying'>"
+        "<img src='" + htmlEscape(cachedArtUrl) + "' alt='Album art' "
+          "onerror=\"this.style.visibility='hidden'\">"
+        "<div class='np-text'>"
+          "<div class='np-title'>" + htmlEscape(cachedTitle) + "</div>"
+          "<div class='np-artist'>" + htmlEscape(cachedArtist) + "</div>"
+          "<div class='np-album'>" + htmlEscape(cachedAlbum) + "</div>"
+          + (cachedMetaLine.length() ? "<div class='np-meta'>" + htmlEscape(cachedMetaLine) + "</div>" : "") +
+        "</div>"
+      "</div>";
+  } else {
+    nowPlaying = "<div class='nowplaying np-idle'>Nothing playing</div>";
+  }
+
   String html =
-    "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+    "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+    "<meta name='viewport' content='width=device-width,initial-scale=1'>"
     "<title>Liner</title><style>" + String(PAGE_STYLE) + "</style></head><body>"
     "<h1>Liner</h1>"
     "<div class='status'>"
@@ -187,6 +221,8 @@ void handleRoot() {
       "<div><strong>IP:</strong> " + ipLine + "</div>"
       "<div><strong>Volumio host:</strong> " + htmlEscape(savedVolumioHost) + "</div>"
     "</div>"
+
+    + nowPlaying +
 
     "<form method='POST' action='/save'>"
     "<h2>Wi-Fi &amp; Volumio</h2>"
@@ -230,7 +266,7 @@ void handleRoot() {
 
     "</body></html>";
 
-  webServer.send(200, "text/html", html);
+  webServer.send(200, "text/html; charset=utf-8", html);
 }
 
 void handleSaveSettings() {
@@ -264,7 +300,7 @@ void handleSaveSettings() {
   }
   body += "<p><a href='/'>Back</a></p>";
 
-  webServer.send(200, "text/html",
+  webServer.send(200, "text/html; charset=utf-8",
     "<html><head><meta name='viewport' content='width=device-width,initial-scale=1'></head>"
     "<body style='font-family:-apple-system,sans-serif;text-align:center;margin-top:3em;padding:0 1em;'>"
     + body + "</body></html>");
@@ -833,15 +869,25 @@ void loop() {
     bool playing = (status == "play") && title.length() > 0;
     String key = playing ? (title + "|" + artist + "|" + album) : "__IDLE__";
 
+    // Refreshed every poll regardless of whether the e-paper redraws, so the
+    // web portal's Now Playing section stays current without its own
+    // separate call to Volumio.
+    cachedPlaying = playing;
+    if (playing) {
+      cachedTitle = title;
+      cachedArtist = artist;
+      cachedAlbum = album;
+      cachedArtUrl = resolveAlbumArtUrl(art, service);
+      cachedMetaLine = buildMetaLine(service, trackType, samplerate, bitdepth, bitrate);
+    }
+
     if (key != lastRenderedKey) {
       Serial.printf("Track change -> %s (service=%s)\n", key.c_str(), service.c_str());
       Serial.printf("  raw albumart field: \"%s\"\n", art.c_str());
       if (playing) {
-        String resolvedArt = resolveAlbumArtUrl(art, service);
-        String metaLine = buildMetaLine(service, trackType, samplerate, bitdepth, bitrate);
-        Serial.printf("  resolved art URL: \"%s\"\n", resolvedArt.c_str());
-        Serial.printf("  meta line: \"%s\"\n", metaLine.c_str());
-        renderNowPlaying(title, artist, album, resolvedArt, metaLine);
+        Serial.printf("  resolved art URL: \"%s\"\n", cachedArtUrl.c_str());
+        Serial.printf("  meta line: \"%s\"\n", cachedMetaLine.c_str());
+        renderNowPlaying(title, artist, album, cachedArtUrl, cachedMetaLine);
         idleSince = 0;
       } else {
         renderIdle();
