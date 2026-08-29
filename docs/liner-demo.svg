@@ -24,8 +24,8 @@
 
     <!-- ============================= STATE A: Connecting ============================= -->
     <g id="stateA">
-      <animate attributeName="opacity" dur="10s" repeatCount="indefinite"
-                calcMode="discrete" keyTimes="0;0.30" values="1;0"/>
+      <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+                calcMode="discrete" keyTimes="0;0.20" values="1;0"/>
       <rect x="60" y="94" width="340" height="472" fill="#faf9f6"/>
       <text x="230" y="322" text-anchor="middle" font-size="20" fill="#1a1a1a">Connecting to</text>
       <text x="230" y="350" text-anchor="middle" font-size="20" font-weight="bold" fill="#1a1a1a">Wi-Fi&#8230;</text>
@@ -33,8 +33,8 @@
 
     <!-- ============================= STATE B: Now Playing ============================= -->
     <g id="stateB" opacity="0">
-      <animate attributeName="opacity" dur="10s" repeatCount="indefinite"
-                calcMode="discrete" keyTimes="0;0.33;0.63" values="0;1;0"/>
+      <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+                calcMode="discrete" keyTimes="0;0.225;0.425" values="0;1;0"/>
       <rect x="60" y="94" width="340" height="472" fill="#faf9f6"/>
 
       <!-- album art: abstract shapes quantized to the Spectra 6 palette -->
@@ -55,18 +55,35 @@
 
     <!-- ============================= STATE C: Idle ============================= -->
     <g id="stateC" opacity="0">
-      <animate attributeName="opacity" dur="10s" repeatCount="indefinite"
-                calcMode="discrete" keyTimes="0;0.66;0.96" values="0;1;0"/>
+      <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+                calcMode="discrete" keyTimes="0;0.45;0.65" values="0;1;0"/>
       <rect x="60" y="94" width="340" height="472" fill="#faf9f6"/>
       <text x="230" y="336" text-anchor="middle" font-size="22" font-weight="bold" fill="#1a1a1a">Nothing Playing</text>
     </g>
 
+    <!-- ============================= STATE D: Idle screensaver ============================= -->
+    <!-- One of the three generative patterns renderScreensaver() can draw, in the
+         Spectra 6 palette (black/red/yellow/blue/green) — shown after a long idle stretch. -->
+    <g id="stateD" opacity="0">
+      <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
+                calcMode="discrete" keyTimes="0;0.675;0.95" values="0;1;0"/>
+      <rect x="60" y="94" width="340" height="472" fill="#faf9f6"/>
+      <circle cx="230" cy="330" r="300" fill="#1a1a1a"/>
+      <circle cx="230" cy="330" r="260" fill="#c0392b"/>
+      <circle cx="230" cy="330" r="220" fill="#f4c400"/>
+      <circle cx="230" cy="330" r="180" fill="#1b3a6b"/>
+      <circle cx="230" cy="330" r="140" fill="#2e6f40"/>
+      <circle cx="230" cy="330" r="100" fill="#1a1a1a"/>
+      <circle cx="230" cy="330" r="60" fill="#f4c400"/>
+      <circle cx="230" cy="330" r="20" fill="#c0392b"/>
+    </g>
+
     <!-- ============================= e-paper refresh flicker ============================= -->
     <rect x="60" y="94" width="340" height="472" fill="#161616" opacity="0">
-      <animate attributeName="opacity" dur="10s" repeatCount="indefinite"
+      <animate attributeName="opacity" dur="12s" repeatCount="indefinite"
                 calcMode="discrete"
-                keyTimes="0;0.30;0.315;0.33;0.63;0.645;0.66;0.96;0.98;1"
-                values="  0;0   ;1    ;0   ;0   ;1    ;0   ;0   ;1   ;0"/>
+                keyTimes="0;0.20;0.2125;0.225;0.425;0.4375;0.45;0.65;0.6625;0.675;0.95;0.9625;0.975;1"
+                values="  0;0   ;1     ;0   ;0    ;1     ;0   ;0   ;1     ;0    ;0   ;1     ;0    ;0"/>
     </rect>
 
   </g>
