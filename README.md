@@ -1,5 +1,7 @@
 # Liner
 
+[![Release](https://img.shields.io/github/v/release/ry-ops/Liner)](https://github.com/ry-ops/Liner/releases/latest)
+
 A "now playing" display for the [M5Stack PaperColor](https://docs.m5stack.com/en/core/PaperColor) — a 4" color e-paper dev board — driven by [Volumio](https://volumio.com/). It shows album art, title, and artist for whatever's currently playing, and refreshes automatically as tracks change.
 
 The name is a nod to *liner notes* — the printed text and art that ship inside physical album packaging. That's essentially what this recreates on e-paper.
