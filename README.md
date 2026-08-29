@@ -4,6 +4,10 @@ A "now playing" display for the [M5Stack PaperColor](https://docs.m5stack.com/en
 
 The name is a nod to *liner notes* — the printed text and art that ship inside physical album packaging. That's essentially what this recreates on e-paper.
 
+<p align="center">
+  <img src="docs/liner-demo.svg" alt="Liner cycling through its Connecting, Now Playing, and Idle screens on an M5Stack PaperColor" width="360">
+</p>
+
 ## Features
 
 - **Now-playing card**: full-width album art on top, title/artist/album text below
