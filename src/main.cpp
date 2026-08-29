@@ -20,7 +20,7 @@
 
 #include "config.h"
 
-static const char* LINER_VERSION = "1.2.0";
+static const char* LINER_VERSION = "1.3.0";
 static const char* MDNS_HOSTNAME = "liner"; // also the OTA target: liner.local
 
 static const int PANEL_W = 400;
@@ -418,6 +418,60 @@ String resolveAlbumArtUrl(const String& albumart, const String& service) {
   return genericResolveArtUrl(albumart);
 }
 
+// Maps Volumio's internal service identifier to something worth putting on
+// screen. Falls back to the raw value (capitalized) for anything unlisted,
+// rather than hiding it — better to show an unfamiliar label than nothing.
+String friendlyServiceName(const String& service) {
+  if (service == "mpd") return "Local";
+  if (service == "spop" || service == "volspotconnect2") return "Spotify";
+  if (service == "tidal") return "Tidal";
+  if (service == "webradio") return "Web Radio";
+  if (service.length() == 0) return "";
+  String out = service;
+  out.setCharAt(0, toupper(out[0]));
+  return out;
+}
+
+// Builds the small "audio nerd" line — platform, format/quality, bitrate —
+// from whatever Volumio's getState actually populated. Only Tidal has been
+// exercised so far; other services may leave some of these fields empty.
+String buildMetaLine(const String& service, const String& trackType,
+                      const String& samplerate, const String& bitdepth,
+                      const String& bitrate) {
+  String parts[3];
+  int n = 0;
+
+  // Some services (Tidal via the mpd plugin, at least) report their own name
+  // as trackType instead of an actual codec — showing the platform segment
+  // too would just repeat it (e.g. "Tidal · TIDAL 44.1kHz/16bit"). Skip the
+  // platform segment in that case; trackType already conveys the source.
+  String platform = friendlyServiceName(service);
+  bool trackTypeIsPlatform = platform.length() && trackType.equalsIgnoreCase(platform);
+  if (platform.length() && !trackTypeIsPlatform) parts[n++] = platform;
+
+  String fmt = trackType;
+  fmt.toUpperCase();
+  String quality = samplerate;
+  if (bitdepth.length()) quality += (quality.length() ? "/" : "") + bitdepth;
+  if (fmt.length() || quality.length()) {
+    parts[n++] = fmt + (fmt.length() && quality.length() ? " " : "") + quality;
+  }
+
+  if (bitrate.length()) {
+    String br = bitrate;
+    String brLower = br; brLower.toLowerCase();
+    if (brLower.indexOf("kbps") == -1) br += " kbps";
+    parts[n++] = br;
+  }
+
+  String meta;
+  for (int i = 0; i < n; i++) {
+    if (meta.length()) meta += "  ·  ";
+    meta += parts[i];
+  }
+  return meta;
+}
+
 bool fetchState(JsonDocument& doc) {
   HTTPClient http;
   String url = "http://" + savedVolumioHost + ":" + String(VOLUMIO_PORT) + "/api/v1/getState";
@@ -609,7 +663,7 @@ void renderScreensaver() {
 }
 
 void renderNowPlaying(const String& title, const String& artist, const String& album,
-                       const String& artUrl) {
+                       const String& artUrl, const String& metaLine) {
   M5.Display.startWrite();
   M5.Display.fillScreen(TFT_WHITE);
 
@@ -650,7 +704,17 @@ void renderNowPlaying(const String& title, const String& artist, const String& a
   y += 4;
   M5.Display.setFont(&fonts::FreeSans9pt7b);
   M5.Display.setTextColor(TFT_BLACK, TFT_WHITE);
-  drawWrapped(album, textX, y, textWidth, 20);
+  y = drawWrapped(album, textX, y, textWidth, 20);
+
+  // Platform / format / bitrate — for the audio nerds. Bold sets it apart
+  // from the plain album line above. Only shown when Volumio actually
+  // populated something; not every service fills in all of these fields.
+  if (metaLine.length()) {
+    y += 8;
+    M5.Display.setFont(&fonts::FreeSansBold12pt7b);
+    M5.Display.setTextColor(TFT_BLACK, TFT_WHITE);
+    drawWrapped(metaLine, textX, y, textWidth, 24);
+  }
 
   M5.Display.endWrite();
   M5.Display.display();
@@ -755,12 +819,16 @@ void loop() {
 
   JsonDocument doc;
   if (fetchState(doc)) {
-    String status  = doc["status"]  | "";
-    String title   = doc["title"]   | "";
-    String artist  = doc["artist"]  | "";
-    String album   = doc["album"]   | "";
-    String art     = doc["albumart"] | "";
-    String service = doc["service"] | "";
+    String status     = doc["status"]     | "";
+    String title      = doc["title"]      | "";
+    String artist     = doc["artist"]     | "";
+    String album      = doc["album"]      | "";
+    String art        = doc["albumart"]   | "";
+    String service    = doc["service"]    | "";
+    String trackType  = doc["trackType"]  | "";
+    String samplerate = doc["samplerate"] | "";
+    String bitdepth   = doc["bitdepth"]   | "";
+    String bitrate    = doc["bitrate"]    | "";
 
     bool playing = (status == "play") && title.length() > 0;
     String key = playing ? (title + "|" + artist + "|" + album) : "__IDLE__";
@@ -770,8 +838,10 @@ void loop() {
       Serial.printf("  raw albumart field: \"%s\"\n", art.c_str());
       if (playing) {
         String resolvedArt = resolveAlbumArtUrl(art, service);
+        String metaLine = buildMetaLine(service, trackType, samplerate, bitdepth, bitrate);
         Serial.printf("  resolved art URL: \"%s\"\n", resolvedArt.c_str());
-        renderNowPlaying(title, artist, album, resolvedArt);
+        Serial.printf("  meta line: \"%s\"\n", metaLine.c_str());
+        renderNowPlaying(title, artist, album, resolvedArt, metaLine);
         idleSince = 0;
       } else {
         renderIdle();

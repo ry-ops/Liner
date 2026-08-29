@@ -12,7 +12,7 @@ The name is a nod to *liner notes* — the printed text and art that ship inside
 
 ## Features
 
-- **Now-playing card**: full-width album art on top, title/artist/album text below
+- **Now-playing card**: full-width album art on top, title/artist/album text below, plus a bold platform/format/bitrate line for the audio nerds (e.g. `TIDAL 44.1kHz/16bit  ·  1411 kbps`)
 - **Idle screen** when nothing is playing, cycling into a generative Spectra-6 screensaver after a long idle stretch
 - **Event-driven refresh** — only redraws when the track actually changes, since a full e-paper refresh takes 15–30 seconds
 - **Playback controls** — up/down buttons skip to the next/previous track
@@ -90,6 +90,12 @@ https://wsrv.nl/?url=<encoded-source-url>&w=400&h=400&fit=cover&output=jpg
 This also shrinks the download significantly (a 105KB source image came back as 35KB), which helps given how slow a full-size fetch over Wi-Fi + HTTPS can be. Local Volumio-served art skips the proxy and is fetched directly, since it hasn't shown the same progressive-JPEG issue.
 
 Album art resolution is dispatched by Volumio's `service` field (`resolveAlbumArtUrl()` in `src/main.cpp`), so each source has its own clear spot for future quirks. **Only the Tidal path has actually been exercised** — local file (`mpd`) and Spotify (`spop`/`volspotconnect2`) branches exist as stubs that currently fall through to the same generic logic, untested.
+
+### Platform, format, and bitrate
+
+Below the album name, a bold line shows whatever Volumio's `getState` populated in `service`, `trackType`, `samplerate`, `bitdepth`, and `bitrate` — e.g. `TIDAL 44.1kHz/16bit  ·  1411 kbps` (`buildMetaLine()` in `src/main.cpp`). It's built defensively since not every service fills in all of these fields, and only appears at all when there's something to show.
+
+One quirk found via Tidal: Volumio's `trackType` field there reports the service name (`"Tidal"`) rather than an actual codec, which would otherwise duplicate the platform name shown right next to it (`Tidal · TIDAL 44.1kHz/16bit`). `buildMetaLine()` drops the redundant platform segment whenever `trackType` already matches it.
 
 ### Idle screensaver
 

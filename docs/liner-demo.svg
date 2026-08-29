@@ -51,6 +51,7 @@
       <text x="80" y="470" font-size="22" font-weight="bold" fill="#1a1a1a">Midnight Static</text>
       <text x="80" y="500" font-size="16" fill="#1a1a1a">The Wavelengths</text>
       <text x="80" y="524" font-size="13" fill="#1a1a1a">Liner Notes</text>
+      <text x="80" y="552" font-size="16" font-weight="bold" fill="#1a1a1a">TIDAL 44.1kHz/16bit &#183; 1411 kbps</text>
     </g>
 
     <!-- ============================= STATE C: Idle ============================= -->
